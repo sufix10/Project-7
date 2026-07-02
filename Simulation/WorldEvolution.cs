@@ -213,6 +213,11 @@ namespace PG.World.Simulation
             };
         }
 
+
+        //// < OVO JE NEPOTREBNO ZA NASU IMPLEMENTACIJU, JER NEMA VEZE SA EVOLUCIJOM SLEDECIH REGIJA, SAMO ODREDJUJE DISTANCU IZMEDJU REGIJA
+        /// KOJA U SUSTINI NEMA NIKAKAV EFEKAT NITI CE BITI KORISCENA///
+
+
         /// <summary>
         /// Calculate distance between two regions (grid-based).
         /// </summary>
@@ -261,6 +266,12 @@ namespace PG.World.Simulation
 
             return int.MaxValue; // No path found
         }
+
+
+        //// < OVO NIJE KAKO MI ZELIMO DA RADI, NEMA VEZE SA DISTANCOM EVOLUIRANJE SLEDECIH REGIJA, 
+        /// SVE REGIJE EVOLVUJU U ZAVISNOSTI OD IZBORA ETC >
+
+
 
         /// <summary>
         /// Simulate tier spread when a region evolves.
@@ -359,6 +370,11 @@ namespace PG.World.Simulation
 
             var rng = new DeterministicRandom(Seed + (ulong)Regions.Count);
 
+
+            ////  MI ZELIMO DA RNG BUDE VISE DETERMINISTICKI NEGO DA BUDE RNG,
+            ///   ZELIMO DA POSTOJE DETERMINISTICKE SITUACIJE KOJE DOPRINOSITI DA SE REGIJA EVOLUIRA NA NEKI NACIN
+            /// TJ DA POVECA SANSU ZA ODREDJENI OUTCOME
+            /// 
             // Apply tier spread
             var tierChanges = EvolutionRules.CalculateTierSpread(region, rng);
 

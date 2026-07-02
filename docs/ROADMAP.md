@@ -27,7 +27,7 @@ Milestone 4: Content Pass & Tools
 - Create authoring tools and content library for 7 regions, 28 evolution paths, and all enemy/loot data.
 - Deliverables: content resource templates, editor helpers, sample campaign.
 - Status: next.
-
+    
 Milestone 5: Multiplayer Polishing & Full Systems
 - Finalize networking, persistence, party scaling, quest/faction systems, and cross-region crafting economy.
 - Deliverables: alpha-ready multiplayer prototype, playtesting feedback.
