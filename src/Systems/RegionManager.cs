@@ -31,7 +31,7 @@ namespace PG.Systems
             return _regions[RegionId.NorthernRealm];
         }
 
-        public RegionState? GetRegion(RegionId regionId)
+        public RegionState GetRegion(RegionId regionId)
         {
             return _regions.TryGetValue(regionId, out var region) ? region : null;
         }

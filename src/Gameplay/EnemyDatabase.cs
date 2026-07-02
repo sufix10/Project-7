@@ -56,7 +56,7 @@ namespace PG.Gameplay.Combat
             _archetypes[sandSlasher.ArchetypeName] = sandSlasher;
         }
 
-        public EnemyArchetype? GetArchetypeForRegion(RegionId regionId, EvolutionPath path, WorldTier tier)
+        public EnemyArchetype GetArchetypeForRegion(RegionId regionId, EvolutionPath path, WorldTier tier)
         {
             foreach (var archetype in _archetypes.Values)
             {

@@ -1,175 +1,234 @@
 using Godot;
-using System.Text;
 using PG.Systems;
+using System.Collections.Generic;
+using System.Linq;
 
-public partial class PrototypeRunner : Control
+public partial class PrototypeRunner : Node2D
 {
-    private Label _output = null!;
-    private ProgressBar _enemyBar = null!;
-    private Label _summaryLabel = null!;
-    private PrototypeGameManager? _manager;
+    private const float PlayerSpeed = 220f;
+    private const float AttackRange = 110f;
+    private const float AttackCooldownDuration = 0.35f;
+
+    private PrototypeGameManager _manager = null!;
+    private CharacterBody2D _player = null!;
+    private Node2D _world = null!;
+    private Label _stateLabel = null!;
+    private Label _questLabel = null!;
+    private Label _lootLabel = null!;
+    private Label _hintLabel = null!;
+    private Dictionary<string, Node2D> _enemyNodes = new();
+
+    private float _attackCooldown = 0f;
+    private float _worldTime = 0f;
 
     public override void _Ready()
     {
-        _output = GetNode<Label>("Output");
+        _player = GetNode<CharacterBody2D>("Player");
+        _world = GetNode<Node2D>("World");
+
         BuildHud();
-        RunPrototype();
+        _manager = new PrototypeGameManager(12345);
+        _manager.StartSession();
+
+        var camera = _player.GetNode<Camera2D>("Camera2D");
+        camera.MakeCurrent();
+
+        SyncWorldToManager();
+        UpdateHud();
     }
 
-    public override void _Draw()
+    public override void _Process(double delta)
     {
-        var rect = new Rect2(0, 0, Size.X, Size.Y);
-        DrawRect(rect, new Color(0.08f, 0.12f, 0.18f));
-        DrawRect(new Rect2(20, 20, Size.X - 40, 140), new Color(0.18f, 0.25f, 0.35f));
-        DrawRect(new Rect2(40, 210, Size.X - 80, 170), new Color(0.14f, 0.20f, 0.28f));
+        var dt = (float)delta;
+        _worldTime += dt;
 
-        var count = _manager?.CurrentState.ActiveEnemies.Count ?? 3;
-        for (var i = 0; i < Mathf.Min(count, 5); i++)
+        if (_attackCooldown > 0f)
         {
-            var x = 60 + (i * 70);
-            DrawCircle(new Vector2(x, 280), 24, new Color(0.85f, 0.25f, 0.25f));
+            _attackCooldown -= dt;
         }
+
+        HandlePlayerMovement(dt);
+
+        if ((Input.IsActionJustPressed("ui_accept") || Input.IsKeyPressed(Key.Space) || Input.IsMouseButtonPressed(MouseButton.Left)) && _attackCooldown <= 0f)
+        {
+            AttackNearestEnemy();
+            _attackCooldown = AttackCooldownDuration;
+        }
+
+        _manager.Tick(dt);
+        SyncWorldToManager();
+        UpdateHud();
     }
 
     private void BuildHud()
     {
-        var bg = new ColorRect
-        {
-            Name = "Backdrop",
-            AnchorsPreset = LayoutPreset.FullRect,
-            Color = new Color(0.07f, 0.09f, 0.13f),
-            ZIndex = -10
-        };
-        AddChild(bg);
-        bg.MoveToFront();
+        var hud = new CanvasLayer();
+        AddChild(hud);
 
         var panel = new PanelContainer
         {
-            Name = "Panel",
-            AnchorLeft = 0.03f,
-            AnchorTop = 0.03f,
-            AnchorRight = 0.97f,
-            AnchorBottom = 0.97f,
+            AnchorLeft = 0.02f,
+            AnchorTop = 0.02f,
+            AnchorRight = 0.98f,
+            AnchorBottom = 0.98f,
             OffsetLeft = 0,
             OffsetTop = 0,
             OffsetRight = 0,
             OffsetBottom = 0
         };
-        AddChild(panel);
+        hud.AddChild(panel);
 
-        var vbox = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        var vbox = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
         panel.AddChild(vbox);
 
         var title = new Label
         {
-            Text = "ProceduralGame Prototype",
+            Text = "ProceduralGame • Playable Prototype",
             HorizontalAlignment = HorizontalAlignment.Center,
-            ThemeTypeVariation = "HeaderLarge",
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
         vbox.AddChild(title);
 
-        _summaryLabel = new Label
+        _stateLabel = new Label
         {
-            Text = "Waiting for the prototype run...",
+            Text = "Loading world...",
             AutowrapMode = TextServer.AutowrapMode.Word,
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
-        vbox.AddChild(_summaryLabel);
+        vbox.AddChild(_stateLabel);
 
-        _enemyBar = new ProgressBar
+        _questLabel = new Label
         {
-            MinValue = 0,
-            MaxValue = 5,
-            Value = 0,
+            Text = "Quest: waiting",
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
-        vbox.AddChild(_enemyBar);
+        vbox.AddChild(_questLabel);
 
-        var infoLabel = new Label
+        _lootLabel = new Label
         {
-            Text = "Enemy pressure and loot feedback",
+            Text = "Loot: none",
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
-        vbox.AddChild(infoLabel);
+        vbox.AddChild(_lootLabel);
 
-        var scenePanel = new ColorRect
+        _hintLabel = new Label
         {
-            CustomMinimumSize = new Vector2(0, 220),
-            Color = new Color(0.16f, 0.22f, 0.30f),
+            Text = "WASD to move • Space or click to attack • Survive the region",
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
-        vbox.AddChild(scenePanel);
-
-        var sceneLabel = new Label
-        {
-            Text = "World view: region, path, loot, and quest state",
-            AnchorsPreset = LayoutPreset.TopWide,
-            OffsetLeft = 16,
-            OffsetTop = 16,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        scenePanel.AddChild(sceneLabel);
-
-        _output = new Label
-        {
-            Text = "Starting prototype...",
-            AutowrapMode = TextServer.AutowrapMode.Word,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ExpandFill,
-            CustomMinimumSize = new Vector2(0, 180)
-        };
-        vbox.AddChild(_output);
+        vbox.AddChild(_hintLabel);
     }
 
-    private void RunPrototype()
+    private void HandlePlayerMovement(float delta)
     {
-        _manager = new PrototypeGameManager(12345);
-        _manager.StartSession();
+        var direction = Input.GetVector("ui_left", "ui_right", "ui_up", "ui_down");
+        var velocity = direction * PlayerSpeed;
+        _player.Velocity = velocity;
+        _player.MoveAndSlide();
 
-        var sb = new StringBuilder();
-        sb.AppendLine("=== Minimal Godot Prototype ===");
-        sb.AppendLine($"Region: {_manager.CurrentState.CurrentRegion.RegionId}");
-        sb.AppendLine($"Path: {_manager.CurrentState.CurrentRegion.CurrentPath}");
-        sb.AppendLine($"Tier: {_manager.CurrentState.CurrentRegion.CurrentTier}");
-        sb.AppendLine($"Enemies: {_manager.CurrentState.ActiveEnemies.Count}");
-        sb.AppendLine($"Quests: {_manager.CurrentState.ActiveQuests.Count}");
-        sb.AppendLine();
-
-        while (_manager.CurrentState.ActiveEnemies.Count > 0)
+        if (velocity.LengthSquared() > 0f)
         {
-            var enemy = _manager.CurrentState.ActiveEnemies[0];
-            sb.AppendLine($"Attacking enemy: {enemy.Archetype.ArchetypeName} (HP: {enemy.CurrentHealth})");
-            _manager.DamageEnemy(enemy.Id, enemy.CurrentHealth + 1);
-            sb.AppendLine("Enemy killed.");
-            sb.AppendLine($"Loot generated: {_manager.CurrentState.ActiveLoot.Count}");
-            sb.AppendLine();
+            _player.GlobalPosition = new Vector2(
+                Mathf.Clamp(_player.GlobalPosition.X, -720f, 720f),
+                Mathf.Clamp(_player.GlobalPosition.Y, -420f, 420f));
+        }
+    }
+
+    private void AttackNearestEnemy()
+    {
+        var target = _enemyNodes.Values
+            .OrderBy(node => (node.GlobalPosition - _player.GlobalPosition).LengthSquared())
+            .FirstOrDefault();
+
+        if (target == null)
+        {
+            return;
         }
 
-        _manager.Tick(0.016f);
-
-        sb.AppendLine($"Play time: {_manager.CurrentState.PlayTimeSeconds:F3}s");
-        sb.AppendLine($"Remaining enemies: {_manager.CurrentState.ActiveEnemies.Count}");
-
-        foreach (var quest in _manager.CurrentState.ActiveQuests)
+        var enemyId = target.Name;
+        var distance = (target.GlobalPosition - _player.GlobalPosition).Length();
+        if (distance > AttackRange)
         {
-            sb.AppendLine($"Quest: {quest.Title} - {quest.State} ({quest.Objective?.CurrentCount}/{quest.Objective?.TargetCount})");
+            return;
         }
 
-        if (_manager.CurrentState.ActiveLoot.Count > 0)
+        _manager.DamageEnemy(enemyId, 60f);
+        var pulse = new ColorRect
         {
-            sb.AppendLine();
-            sb.AppendLine("Loot:");
-            foreach (var item in _manager.CurrentState.ActiveLoot)
+            Size = new Vector2(70, 70),
+            Position = new Vector2(-35, -35),
+            Color = new Color(1f, 0.9f, 0.2f, 0.65f)
+        };
+        target.AddChild(pulse);
+        var tween = CreateTween();
+        tween.TweenProperty(pulse, "modulate:a", 0f, 0.2f);
+        tween.TweenCallback(Callable.From(() => pulse.QueueFree()));
+    }
+
+    private void SyncWorldToManager()
+    {
+        var activeIds = new HashSet<string>(_manager.CurrentState.ActiveEnemies.Select(enemy => enemy.Id));
+        var currentIds = _enemyNodes.Keys.ToList();
+
+        foreach (var idleId in currentIds.Where(id => !activeIds.Contains(id)))
+        {
+            _enemyNodes[idleId].QueueFree();
+            _enemyNodes.Remove(idleId);
+        }
+
+        for (var index = 0; index < _manager.CurrentState.ActiveEnemies.Count; index++)
+        {
+            var enemy = _manager.CurrentState.ActiveEnemies[index];
+            if (_enemyNodes.TryGetValue(enemy.Id, out var enemyNode))
             {
-                sb.AppendLine($" - {item.DisplayName} [{item.Rarity}]");
+                var orbitOffset = new Vector2(
+                    Mathf.Cos(_worldTime + index) * 70f,
+                    Mathf.Sin(_worldTime * 1.25f + index) * 40f);
+                enemyNode.GlobalPosition = new Vector2(320f + index * 90f, 180f + (index % 3) * 80f) + orbitOffset;
+                continue;
             }
-        }
 
-        _output.Text = sb.ToString();
-        _summaryLabel.Text = $"Region {_manager.CurrentState.CurrentRegion.RegionId} • Path {_manager.CurrentState.CurrentRegion.CurrentPath} • Loot {_manager.CurrentState.ActiveLoot.Count}";
-        _enemyBar.MaxValue = 5;
-        _enemyBar.Value = _manager.CurrentState.ActiveEnemies.Count;
-        QueueRedraw();
+            enemyNode = new Node2D { Name = enemy.Id };
+            var body = new ColorRect
+            {
+                Size = new Vector2(42, 42),
+                Position = new Vector2(-21, -21),
+                Color = new Color(0.9f, 0.2f, 0.2f)
+            };
+            enemyNode.AddChild(body);
+
+            var label = new Label
+            {
+                Text = enemy.Archetype.ArchetypeName,
+                Position = new Vector2(-40, 24),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            enemyNode.AddChild(label);
+
+            _world.AddChild(enemyNode);
+            _enemyNodes[enemy.Id] = enemyNode;
+        }
+    }
+
+    private void UpdateHud()
+    {
+        var region = _manager.CurrentState.CurrentRegion;
+        var quest = _manager.CurrentState.ActiveQuests.FirstOrDefault();
+        var lootText = _manager.CurrentState.ActiveLoot.Count > 0
+            ? string.Join("\n", _manager.CurrentState.ActiveLoot.Take(4).Select(item => $"• {item.DisplayName} ({item.Rarity})"))
+            : "none";
+
+        _stateLabel.Text = $"Region: {region.RegionId}\nPath: {region.CurrentPath}\nTier: {region.CurrentTier}\nEnemies: {_manager.CurrentState.ActiveEnemies.Count}\nTime: {_manager.CurrentState.PlayTimeSeconds:F1}s";
+        _questLabel.Text = quest == null
+            ? "Quest: no active quest"
+            : $"Quest: {quest.Title}\nObjective: {quest.Objective?.CurrentCount}/{quest.Objective?.TargetCount} ({quest.State})";
+        _lootLabel.Text = $"Loot collected:\n{lootText}";
+        _hintLabel.Text = _manager.CurrentState.ActiveEnemies.Count > 0
+            ? "WASD to move • Space or click to attack • Survive the region"
+            : "WASD to move • The region is clear — enemies will return soon";
     }
 }
